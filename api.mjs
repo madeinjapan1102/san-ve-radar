@@ -22,8 +22,8 @@ const server = http.createServer(async (req, res) => {
       store.itineraries.push(item); await writeStore(store); return json(res, 201, item);
     }
     if (req.method === "GET" && url.pathname === "/quotes") return json(res, 200, { quotes: (await readStore()).quotes });
-    if (req.method === "POST" && url.pathname === "/check") {
-      const input = await body(req); const store = await readStore();
+    if ((req.method === "POST" || req.method === "GET") && url.pathname === "/check") {
+      const input = req.method === "POST" ? await body(req) : {}; const store = await readStore();
       const targets = store.itineraries.filter((item) => item.enabled !== false && (!input.itineraryId || item.id === input.itineraryId));
       const results = [];
       for (const itinerary of targets) for (const provider of listProviders()) {
