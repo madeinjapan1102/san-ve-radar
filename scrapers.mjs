@@ -28,22 +28,6 @@ const officialSites = {
   LH: "https://www.lufthansa.com/"
 };
 
-const buildRouteLink = (airlineCode, itinerary, googleFlightsUrl) => {
-  if (airlineCode === "VJ") {
-    const params = new URLSearchParams({
-      departAirport: itinerary.origin,
-      arrivalAirport: itinerary.destination,
-      departDate: itinerary.departureDate,
-      tripType: "oneway",
-      adultCount: "1",
-      currency: "VND",
-      languageCode: "vi"
-    });
-    return `https://www.vietjetair.com/vi?${params}`;
-  }
-  return googleFlightsUrl;
-};
-
 export function listProviders() { return providers; }
 
 async function scrapeVietnamAirlines(itinerary) {
@@ -71,7 +55,7 @@ async function scrapeFlightsViaSerpApi(itinerary) {
     const last = segments.at(-1) || {};
     const flightNumber = first.flight_number || null;
     const airlineCode = flightNumber?.split(/\s+/)[0] || "GF";
-    return { amount: Number(offer.price), currency: "VND", fareDate: itinerary.departureDate, provider: airlineCode, airline: first.airline || "Hãng bay", bookingUrl: buildRouteLink(airlineCode, itinerary, googleFlightsUrl), officialUrl: officialSites[airlineCode] || null, flightNumber, departureTime: first.departure_airport?.time?.slice(11, 16) || null, arrivalTime: last.arrival_airport?.time?.slice(11, 16) || null, stops: Math.max(0, segments.length - 1), kind: "google-flights-live" };
+    return { amount: Number(offer.price), currency: "VND", fareDate: itinerary.departureDate, provider: airlineCode, airline: first.airline || "Hãng bay", bookingUrl: googleFlightsUrl, officialUrl: officialSites[airlineCode] || null, flightNumber, departureTime: first.departure_airport?.time?.slice(11, 16) || null, arrivalTime: last.arrival_airport?.time?.slice(11, 16) || null, stops: Math.max(0, segments.length - 1), kind: "google-flights-live" };
   }).filter((fare) => Number.isFinite(fare.amount));
   const unique = fares.filter((fare, index, all) => all.findIndex((item) => item.amount === fare.amount && item.flightNumber === fare.flightNumber) === index).sort((a, b) => a.amount - b.amount);
   return { provider: "GF", airline: "Google Flights", route: `${itinerary.origin}-${itinerary.destination}`, sourceUrl: payload.search_metadata?.google_flights_url || "https://www.google.com/travel/flights", fares: unique.slice(0, 20), dataSource: "SerpApi Google Flights" };
