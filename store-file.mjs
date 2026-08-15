@@ -3,7 +3,7 @@ import path from "node:path";
 
 const root = process.env.DATA_DIR || path.resolve(".data");
 const file = path.join(root, "store.json");
-const empty = { itineraries: [], quotes: [], notifications: [] };
+const empty = { itineraries: [], quotes: [], notifications: [], devices: [] };
 
 export async function readStore() {
   await fs.mkdir(root, { recursive: true });
