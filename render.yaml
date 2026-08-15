@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: san-ve-radar-api
+    runtime: node
+    buildCommand: npm ci && npx playwright install chromium
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: PORT
+        value: 10000
+      - key: DATA_DIR
+        value: /tmp/san-ve-radar
+
+  - type: cron
+    name: san-ve-radar-checker
+    runtime: node
+    schedule: "*/15 * * * *"
+    buildCommand: npm ci && npx playwright install chromium
+    startCommand: npm run worker
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: DATA_DIR
+        value: /tmp/san-ve-radar
