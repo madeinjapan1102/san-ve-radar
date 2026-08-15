@@ -33,8 +33,31 @@ async function scrapeVietJet(itinerary) {
     await pageView.goto(page, { waitUntil: "commit", timeout: 45000 });
     await pageView.waitForTimeout(12000);
     const text = await pageView.locator("body").innerText();
-    const fares = [...text.matchAll(/(?:Price\s+from|From)\s*([0-9]+(?:[.,][0-9]+)?)\s*(EUR|USD)/gi)].map((m) => ({ amount: Number(m[1].replace(",", ".")), currency: m[2].toUpperCase(), kind: "route-page-observation" }));
-    const unique = fares.filter((f, i, a) => a.findIndex((x) => x.amount === f.amount && x.currency === f.currency) === i).sort((a, b) => a.amount - b.amount);
+    const monthMatch = text.match(/\b(0[1-9]|1[0-2])\/(20\d{2})\b/);
+    const calendarStart = text.search(/\bMon\s+Tue\s+Wed\s+Thu\s+Fri\s+Sat\s+Sun\b/s);
+    const calendarEnd = text.indexOf("The Best Fare");
+    const calendar = calendarStart >= 0 ? text.slice(calendarStart, calendarEnd > calendarStart ? calendarEnd : undefined) : "";
+    const currencies = "JPY|USD|EUR|AUD|VND|SGD|CNY|THB|INR|TWD|MYR|KRW|GBP|CAD|HKD|NZD|AED|SAR|PHP|IDR|CZK";
+    const fares = [];
+    if (monthMatch) {
+      const month = monthMatch[1];
+      const year = monthMatch[2];
+      const pricePattern = new RegExp(`(?:^|\\n)(0[1-9]|[12]\\d|3[01])\\n\\s*((?:\\d{1,3}\\n)?[\\d.,]+)\\s*\\n?(${currencies})(?=\\s*(?:\\n|$))`, "g");
+      for (const match of calendar.matchAll(pricePattern)) {
+        const rawAmount = match[2].replace(/\s+/g, "").replaceAll(",", "");
+        const amount = Number(rawAmount);
+        if (!Number.isFinite(amount)) continue;
+        const fareDate = `${year}-${month}-${match[1]}`;
+        if (itinerary.departureDate && fareDate < itinerary.departureDate) continue;
+        if (itinerary.returnDate && fareDate > itinerary.returnDate) continue;
+        fares.push({ amount, currency: match[3].toUpperCase(), fareDate, kind: "calendar-observation" });
+      }
+    }
+    if (!fares.length) {
+      const fallbackPattern = new RegExp(`(?:Price\\s+from|From)\\s*([0-9]+(?:[.,][0-9]+)?)\\s*(${currencies})`, "gi");
+      fares.push(...[...text.matchAll(fallbackPattern)].map((m) => ({ amount: Number(m[1].replace(",", ".")), currency: m[2].toUpperCase(), kind: "route-page-observation" })));
+    }
+    const unique = fares.filter((f, i, a) => a.findIndex((x) => x.amount === f.amount && x.currency === f.currency && x.fareDate === f.fareDate) === i).sort((a, b) => (a.fareDate || "").localeCompare(b.fareDate || "") || a.amount - b.amount);
     return { provider: "VJ", airline: "VietJet Air", route: "NRT-HAN", sourceUrl: page, fares: unique.slice(0, 10) };
   } finally { await browser.close(); }
 }
