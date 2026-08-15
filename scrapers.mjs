@@ -31,7 +31,10 @@ async function scrapeVietJet(itinerary) {
   try {
     await pageView.route("**/*", (route) => ["image", "font", "media"].includes(route.request().resourceType()) ? route.abort() : route.continue());
     await pageView.goto(page, { waitUntil: "commit", timeout: 45000 });
-    await pageView.waitForTimeout(12000);
+    await pageView.waitForFunction(() => {
+      const bodyText = document.body?.innerText || "";
+      return bodyText.includes("The Best Fare") && /\b(0[1-9]|1[0-2])\/(20\d{2})\b/.test(bodyText);
+    }, null, { timeout: 35000 }).catch(() => {});
     const text = await pageView.locator("body").innerText();
     const monthMatch = text.match(/\b(0[1-9]|1[0-2])\/(20\d{2})\b/);
     const calendarStart = text.search(/\bMon\s+Tue\s+Wed\s+Thu\s+Fri\s+Sat\s+Sun\b/s);
@@ -58,7 +61,7 @@ async function scrapeVietJet(itinerary) {
       fares.push(...[...text.matchAll(fallbackPattern)].map((m) => ({ amount: Number(m[1].replace(",", ".")), currency: m[2].toUpperCase(), kind: "route-page-observation" })));
     }
     const unique = fares.filter((f, i, a) => a.findIndex((x) => x.amount === f.amount && x.currency === f.currency && x.fareDate === f.fareDate) === i).sort((a, b) => (a.fareDate || "").localeCompare(b.fareDate || "") || a.amount - b.amount);
-    return { provider: "VJ", airline: "VietJet Air", route: "NRT-HAN", sourceUrl: page, fares: unique.slice(0, 10) };
+    return { provider: "VJ", airline: "VietJet Air", route: "NRT-HAN", sourceUrl: page, fares: unique.slice(0, 10), ...(unique.length ? {} : { diagnostic: { title: await pageView.title(), bodyLength: text.length, hasCalendar: calendarStart >= 0, detectedMonth: monthMatch?.[0] || null } }) };
   } finally { await browser.close(); }
 }
 
