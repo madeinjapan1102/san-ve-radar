@@ -22,10 +22,10 @@ async function scrapeVietnamAirlines(itinerary) {
   return { provider: "VN", airline: "Vietnam Airlines", route: "NRT-HAN", sourceUrl: page, fares: unique.slice(0, 10).map((amount) => ({ amount, currency: "JPY", kind: "route-page-observation" })) };
 }
 
-async function scrapeVietJetViaSerpApi(itinerary) {
+async function scrapeFlightsViaSerpApi(itinerary) {
   const apiKey = process.env.SERPAPI_KEY;
   if (!apiKey) return null;
-  const params = new URLSearchParams({ engine: "google_flights", departure_id: itinerary.origin, arrival_id: itinerary.destination, outbound_date: itinerary.departureDate, type: "2", adults: "1", travel_class: "1", currency: "JPY", hl: "en", gl: "jp", include_airlines: "VJ", sort_by: "2", api_key: apiKey });
+  const params = new URLSearchParams({ engine: "google_flights", departure_id: itinerary.origin, arrival_id: itinerary.destination, outbound_date: itinerary.departureDate, type: "2", adults: "1", travel_class: "1", currency: "JPY", hl: "en", gl: "jp", sort_by: "2", api_key: apiKey });
   const response = await fetch(`https://serpapi.com/search.json?${params}`, { signal: AbortSignal.timeout(60000) });
   const payload = await response.json();
   if (!response.ok || payload.error) throw new Error(payload.error || `SerpApi returned HTTP ${response.status}`);
@@ -34,10 +34,11 @@ async function scrapeVietJetViaSerpApi(itinerary) {
     const segments = offer.flights || [];
     const first = segments[0] || {};
     const last = segments.at(-1) || {};
-    return { amount: Number(offer.price), currency: "JPY", fareDate: itinerary.departureDate, flightNumber: first.flight_number || null, departureTime: first.departure_airport?.time?.slice(11, 16) || null, arrivalTime: last.arrival_airport?.time?.slice(11, 16) || null, stops: Math.max(0, segments.length - 1), kind: "google-flights-live" };
+    const flightNumber = first.flight_number || null;
+    return { amount: Number(offer.price), currency: "JPY", fareDate: itinerary.departureDate, provider: flightNumber?.split(/\s+/)[0] || "GF", airline: first.airline || "Hãng bay", flightNumber, departureTime: first.departure_airport?.time?.slice(11, 16) || null, arrivalTime: last.arrival_airport?.time?.slice(11, 16) || null, stops: Math.max(0, segments.length - 1), kind: "google-flights-live" };
   }).filter((fare) => Number.isFinite(fare.amount));
   const unique = fares.filter((fare, index, all) => all.findIndex((item) => item.amount === fare.amount && item.flightNumber === fare.flightNumber) === index).sort((a, b) => a.amount - b.amount);
-  return { provider: "VJ", airline: "VietJet Air", route: `${itinerary.origin}-${itinerary.destination}`, sourceUrl: payload.search_metadata?.google_flights_url || "https://www.google.com/travel/flights", fares: unique.slice(0, 10), dataSource: "SerpApi Google Flights" };
+  return { provider: "GF", airline: "Google Flights", route: `${itinerary.origin}-${itinerary.destination}`, sourceUrl: payload.search_metadata?.google_flights_url || "https://www.google.com/travel/flights", fares: unique.slice(0, 20), dataSource: "SerpApi Google Flights" };
 }
 
 async function scrapeVietJet(itinerary) {
@@ -83,7 +84,7 @@ export async function scrapeProvider(provider, itinerary) {
   }
   if (provider.code === "VJ") {
     try {
-      const serp = await scrapeVietJetViaSerpApi(itinerary);
+      const serp = await scrapeFlightsViaSerpApi(itinerary);
       if (serp) return { ...serp, departureDate: itinerary.departureDate, checkedAt: now, status: serp.fares.length ? "ok" : "no_fare_found" };
       const vj = await scrapeVietJet(itinerary);
       if (vj) {
