@@ -29,9 +29,11 @@ async function scrapeVietJet(itinerary) {
   const browser = await chromium.launch({ headless: true });
   const pageView = await browser.newPage({ locale: "en-US" });
   try {
-    await pageView.goto(page, { waitUntil: "domcontentloaded", timeout: 45000 });
+    await pageView.route("**/*", (route) => ["image", "font", "media"].includes(route.request().resourceType()) ? route.abort() : route.continue());
+    await pageView.goto(page, { waitUntil: "commit", timeout: 45000 });
+    await pageView.waitForTimeout(12000);
     const text = await pageView.locator("body").innerText();
-    const fares = [...text.matchAll(/Price from\s*([0-9]+(?:[.,][0-9]+)?)\s*(EUR|USD)/gi)].map((m) => ({ amount: Number(m[1].replace(",", ".")), currency: m[2].toUpperCase(), kind: "route-page-observation" }));
+    const fares = [...text.matchAll(/(?:Price\s+from|From)\s*([0-9]+(?:[.,][0-9]+)?)\s*(EUR|USD)/gi)].map((m) => ({ amount: Number(m[1].replace(",", ".")), currency: m[2].toUpperCase(), kind: "route-page-observation" }));
     const unique = fares.filter((f, i, a) => a.findIndex((x) => x.amount === f.amount && x.currency === f.currency) === i).sort((a, b) => a.amount - b.amount);
     return { provider: "VJ", airline: "VietJet Air", route: "NRT-HAN", sourceUrl: page, fares: unique.slice(0, 10) };
   } finally { await browser.close(); }
