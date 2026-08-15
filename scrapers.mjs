@@ -28,7 +28,7 @@ async function scrapeVietJet(itinerary) {
   const page = `https://www.vietjetair.com/?${params}`;
   const { chromium } = await import("playwright");
   const browser = await chromium.launch({ headless: true });
-  const pageView = await browser.newPage({ locale: "en-US" });
+  const pageView = await browser.newPage({ locale: "en-US", userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36", viewport: { width: 1440, height: 1000 } });
   try {
     await pageView.route("**/*", (route) => ["image", "font", "media"].includes(route.request().resourceType()) ? route.abort() : route.continue());
     await pageView.goto(page, { waitUntil: "commit", timeout: 45000 });
