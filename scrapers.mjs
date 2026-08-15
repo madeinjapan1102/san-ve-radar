@@ -25,7 +25,17 @@ const officialSites = {
   AA: "https://www.aa.com/",
   BA: "https://www.britishairways.com/",
   AF: "https://www.airfrance.com/",
-  LH: "https://www.lufthansa.com/"
+  LH: "https://www.lufthansa.com/",
+  CZ: "https://www.csair.com/",
+  MU: "https://www.ceair.com/",
+  CA: "https://www.airchina.com.cn/",
+  HX: "https://www.hongkongairlines.com/",
+  UO: "https://www.hkexpress.com/",
+  HO: "https://www.juneyaoair.com/",
+  MM: "https://www.flypeach.com/",
+  GK: "https://www.jetstar.com/jp/ja/",
+  BX: "https://www.airbusan.com/",
+  LJ: "https://www.jinair.com/"
 };
 
 const buildRouteLink = (airlineCode, itinerary, googleFlightsUrl) => {
@@ -41,7 +51,9 @@ const buildRouteLink = (airlineCode, itinerary, googleFlightsUrl) => {
     });
     return `https://www.vietjetair.com/vi?${params}`;
   }
-  return googleFlightsUrl;
+  // The exact checkout URL is session-backed for most airlines. Open the
+  // airline's own booking entry point instead of returning to Google Flights.
+  return officialSites[airlineCode] || "https://www.iata.org/en/about/members/airline-list/";
 };
 
 export function listProviders() { return providers; }
@@ -82,8 +94,10 @@ export function parseGoogleFlightsHtml(html, itinerary, sourceUrl) {
       fareDate: itinerary.departureDate,
       provider,
       airline,
-      bookingUrl: sourceUrl,
+      bookingUrl: buildRouteLink(provider, itinerary, sourceUrl),
       officialUrl: officialSites[provider] || null,
+      logoUrl: provider === "GF" ? null : `https://www.gstatic.com/flights/airline_logos/70px/${provider}.png`,
+      bookingMatch: provider === "VJ" ? "route-date" : "airline-booking",
       flightNumber: null,
       departureTime: times[0],
       arrivalTime: times[1],
@@ -144,7 +158,7 @@ async function scrapeFlightsViaSerpApi(itinerary) {
     const last = segments.at(-1) || {};
     const flightNumber = first.flight_number || null;
     const airlineCode = flightNumber?.split(/\s+/)[0] || "GF";
-    return { amount: Number(offer.price), currency: "VND", fareDate: itinerary.departureDate, provider: airlineCode, airline: first.airline || "Hãng bay", bookingUrl: buildRouteLink(airlineCode, itinerary, googleFlightsUrl), officialUrl: officialSites[airlineCode] || null, flightNumber, departureTime: first.departure_airport?.time?.slice(11, 16) || null, arrivalTime: last.arrival_airport?.time?.slice(11, 16) || null, stops: Math.max(0, segments.length - 1), kind: "google-flights-live" };
+    return { amount: Number(offer.price), currency: "VND", fareDate: itinerary.departureDate, provider: airlineCode, airline: first.airline || "Hãng bay", bookingUrl: buildRouteLink(airlineCode, itinerary, googleFlightsUrl), officialUrl: officialSites[airlineCode] || null, logoUrl: airlineCode === "GF" ? null : `https://www.gstatic.com/flights/airline_logos/70px/${airlineCode}.png`, bookingMatch: airlineCode === "VJ" ? "route-date" : (flightNumber ? "flight-recognized" : "airline-booking"), flightNumber, departureTime: first.departure_airport?.time?.slice(11, 16) || null, arrivalTime: last.arrival_airport?.time?.slice(11, 16) || null, stops: Math.max(0, segments.length - 1), kind: "google-flights-live" };
   }).filter((fare) => Number.isFinite(fare.amount));
   const unique = fares.filter((fare, index, all) => all.findIndex((item) => item.amount === fare.amount && item.flightNumber === fare.flightNumber) === index).sort((a, b) => a.amount - b.amount);
   return { provider: "GF", airline: "Google Flights", route: `${itinerary.origin}-${itinerary.destination}`, sourceUrl: payload.search_metadata?.google_flights_url || "https://www.google.com/travel/flights", fares: unique.slice(0, 20), dataSource: "SerpApi Google Flights" };

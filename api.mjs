@@ -109,13 +109,18 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/search") {
       const input = await body(req);
       if (!input.origin || !input.destination || !input.departureDate) return json(res, 400, { error: "origin, destination and departureDate are required" });
-      const itinerary = { origin: String(input.origin).toUpperCase(), destination: String(input.destination).toUpperCase(), departureDate: input.departureDate, endDate: input.endDate || input.departureDate };
+      const maxStops = input.maxStops === 0 ? 0 : input.maxStops === 1 ? 1 : null;
+      const itinerary = { origin: String(input.origin).toUpperCase(), destination: String(input.destination).toUpperCase(), departureDate: input.departureDate, endDate: input.endDate || input.departureDate, maxStops };
       let dates;
       try { dates = datesBetween(itinerary.departureDate, itinerary.endDate); }
       catch (error) { return json(res, 400, { error: error.message, message: "Khoảng theo dõi phải hợp lệ và không quá 14 ngày." }); }
       const days = [];
       for (let index = 0; index < dates.length; index += 3) {
         days.push(...await Promise.all(dates.slice(index, index + 3).map((date) => searchDate(itinerary.origin, itinerary.destination, date))));
+      }
+      if (maxStops !== null) for (const day of days) for (const result of day.results) {
+        result.fares = (result.fares || []).filter((fare) => Number(fare.stops || 0) <= maxStops);
+        if (result.status === "ok" && !result.fares.length) result.status = "no_fare_found";
       }
       return json(res, 200, { searchedAt: new Date().toISOString(), itinerary, days, results: days.length === 1 ? days[0].results : [] });
     }
