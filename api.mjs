@@ -6,7 +6,16 @@ import { cert, getApps, initializeApp } from "firebase-admin/app";
 import { getMessaging } from "firebase-admin/messaging";
 
 const port = Number(process.env.PORT || 10000);
-const json = (res, status, body) => { res.writeHead(status, { "content-type": "application/json; charset=utf-8", "access-control-allow-origin": "*" }); res.end(JSON.stringify(body)); };
+const json = (res, status, body) => {
+  res.writeHead(status, {
+    "content-type": "application/json; charset=utf-8",
+    "access-control-allow-origin": "*",
+    "access-control-allow-methods": "GET,POST,OPTIONS",
+    "access-control-allow-headers": "content-type,accept",
+    "access-control-max-age": "86400"
+  });
+  res.end(JSON.stringify(body));
+};
 const body = async (req) => { let raw = ""; for await (const chunk of req) raw += chunk; return raw ? JSON.parse(raw) : {}; };
 const getFirebaseApp = () => {
   if (getApps().length) return getApps()[0];
