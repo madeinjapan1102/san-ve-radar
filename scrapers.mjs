@@ -24,7 +24,8 @@ async function scrapeVietnamAirlines(itinerary) {
 
 async function scrapeVietJet(itinerary) {
   if (itinerary.origin !== "NRT" || itinerary.destination !== "HAN") return null;
-  const page = "https://www.vietjetair.com/en/flight-tickets/flights-from-tokyo-narita-to-ha-noi";
+  const params = new URLSearchParams({ departAirport: itinerary.origin, arrivalAirport: itinerary.destination, departDate: itinerary.departureDate, returnDate: "", tripType: "oneway", adultCount: "1", currency: "JPY", languageCode: "en" });
+  const page = `https://www.vietjetair.com/?${params}`;
   const { chromium } = await import("playwright");
   const browser = await chromium.launch({ headless: true });
   const pageView = await browser.newPage({ locale: "en-US" });
@@ -33,35 +34,20 @@ async function scrapeVietJet(itinerary) {
     await pageView.goto(page, { waitUntil: "commit", timeout: 45000 });
     await pageView.waitForFunction(() => {
       const bodyText = document.body?.innerText || "";
-      return bodyText.includes("The Best Fare") && /\b(0[1-9]|1[0-2])\/(20\d{2})\b/.test(bodyText);
-    }, null, { timeout: 35000 }).catch(() => {});
+      return /\bVJ\d+\b/.test(bodyText) || bodyText.includes("No flights");
+    }, null, { timeout: 45000 }).catch(() => {});
     const text = await pageView.locator("body").innerText();
-    const monthMatch = text.match(/\b(0[1-9]|1[0-2])\/(20\d{2})\b/);
-    const calendarStart = text.search(/\bMon\s+Tue\s+Wed\s+Thu\s+Fri\s+Sat\s+Sun\b/s);
-    const calendarEnd = text.indexOf("The Best Fare");
-    const calendar = calendarStart >= 0 ? text.slice(calendarStart, calendarEnd > calendarStart ? calendarEnd : undefined) : "";
-    const currencies = "JPY|USD|EUR|AUD|VND|SGD|CNY|THB|INR|TWD|MYR|KRW|GBP|CAD|HKD|NZD|AED|SAR|PHP|IDR|CZK";
     const fares = [];
-    if (monthMatch) {
-      const month = monthMatch[1];
-      const year = monthMatch[2];
-      const pricePattern = new RegExp(`(?:^|\\n)(0[1-9]|[12]\\d|3[01])\\n\\s*((?:\\d{1,3}\\n)?[\\d.,]+)\\s*\\n?(${currencies})(?=\\s*(?:\\n|$))`, "g");
-      for (const match of calendar.matchAll(pricePattern)) {
-        const rawAmount = match[2].replace(/\s+/g, "").replaceAll(",", "");
-        const amount = Number(rawAmount);
-        if (!Number.isFinite(amount)) continue;
-        const fareDate = `${year}-${month}-${match[1]}`;
-        if (itinerary.departureDate && fareDate < itinerary.departureDate) continue;
-        if (itinerary.returnDate && fareDate > itinerary.returnDate) continue;
-        fares.push({ amount, currency: match[3].toUpperCase(), fareDate, kind: "calendar-observation" });
-      }
+    const flightPattern = /(?:^|\n)(VJ\d+)\n([^\n]*\d{2}:\d{2}\s+To\s+\d{2}:\d{2})([\s\S]*?)(?=\nVJ\d+\n|\nOperated by\n|\nTotal\n)/g;
+    for (const match of text.matchAll(flightPattern)) {
+      const prices = [...match[3].matchAll(/(\d{1,3}(?:\.\d{3})*)\s*(\.\d{2})?\s*JPY/g)]
+        .map((price) => Number(price[1].replaceAll(".", "") + (price[2] || ""))).filter(Number.isFinite);
+      if (!prices.length) continue;
+      const [departureTime, arrivalTime] = match[2].match(/\d{2}:\d{2}/g) || [];
+      fares.push({ amount: Math.min(...prices), currency: "JPY", fareDate: itinerary.departureDate, flightNumber: match[1], departureTime, arrivalTime, stops: 0, kind: "live-search" });
     }
-    if (!fares.length) {
-      const fallbackPattern = new RegExp(`(?:Price\\s+from|From)\\s*([0-9]+(?:[.,][0-9]+)?)\\s*(${currencies})`, "gi");
-      fares.push(...[...text.matchAll(fallbackPattern)].map((m) => ({ amount: Number(m[1].replace(",", ".")), currency: m[2].toUpperCase(), kind: "route-page-observation" })));
-    }
-    const unique = fares.filter((f, i, a) => a.findIndex((x) => x.amount === f.amount && x.currency === f.currency && x.fareDate === f.fareDate) === i).sort((a, b) => (a.fareDate || "").localeCompare(b.fareDate || "") || a.amount - b.amount);
-    return { provider: "VJ", airline: "VietJet Air", route: "NRT-HAN", sourceUrl: page, fares: unique.slice(0, 10), ...(unique.length ? {} : { diagnostic: { title: await pageView.title(), bodyLength: text.length, hasCalendar: calendarStart >= 0, detectedMonth: monthMatch?.[0] || null } }) };
+    const unique = fares.filter((f, i, a) => a.findIndex((x) => x.flightNumber === f.flightNumber && x.fareDate === f.fareDate) === i).sort((a, b) => a.amount - b.amount);
+    return { provider: "VJ", airline: "VietJet Air", route: "NRT-HAN", sourceUrl: pageView.url(), fares: unique.slice(0, 10), ...(unique.length ? {} : { diagnostic: { title: await pageView.title(), bodyLength: text.length, hasFlightResults: /\bVJ\d+\b/.test(text) } }) };
   } finally { await browser.close(); }
 }
 
