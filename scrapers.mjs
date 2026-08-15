@@ -1,14 +1,32 @@
-const providers = [
-  { code: "VJ", name: "VietJet Air", url: "https://www.vietjetair.com/" },
-  { code: "VN", name: "Vietnam Airlines", url: "https://www.vietnamairlines.com/" },
-  { code: "JL", name: "Japan Airlines", url: "https://www.jal.co.jp/" },
-  { code: "NH", name: "ANA", url: "https://www.ana.co.jp/" },
-  { code: "SQ", name: "Singapore Airlines", url: "https://www.singaporeair.com/" },
-  { code: "TG", name: "Thai Airways", url: "https://www.thaiairways.com/" },
-  { code: "CX", name: "Cathay Pacific", url: "https://www.cathaypacific.com/" },
-  { code: "KE", name: "Korean Air", url: "https://www.koreanair.com/" },
-  { code: "OZ", name: "Asiana Airlines", url: "https://flyasiana.com/" },
-];
+const providers = [{ code: "GF", name: "Các hãng khả dụng theo chặng", url: "https://www.google.com/travel/flights" }];
+
+const officialSites = {
+  VJ: "https://www.vietjetair.com/vi",
+  VN: "https://www.vietnamairlines.com/vn/vi/home",
+  JL: "https://www.jal.co.jp/jp/en/",
+  NH: "https://www.ana.co.jp/en/jp/",
+  KE: "https://www.koreanair.com/",
+  OZ: "https://flyasiana.com/",
+  SQ: "https://www.singaporeair.com/",
+  TG: "https://www.thaiairways.com/",
+  CX: "https://www.cathaypacific.com/",
+  BR: "https://www.evaair.com/",
+  CI: "https://www.china-airlines.com/",
+  PR: "https://www.philippineairlines.com/",
+  AK: "https://www.airasia.com/",
+  FD: "https://www.airasia.com/",
+  QH: "https://www.bambooairways.com/",
+  VU: "https://www.vietravelairlines.vn/",
+  TR: "https://www.flyscoot.com/",
+  TW: "https://www.twayair.com/",
+  "7C": "https://www.jejuair.net/",
+  UA: "https://www.united.com/",
+  DL: "https://www.delta.com/",
+  AA: "https://www.aa.com/",
+  BA: "https://www.britishairways.com/",
+  AF: "https://www.airfrance.com/",
+  LH: "https://www.lufthansa.com/"
+};
 
 export function listProviders() { return providers; }
 
@@ -25,7 +43,7 @@ async function scrapeVietnamAirlines(itinerary) {
 async function scrapeFlightsViaSerpApi(itinerary) {
   const apiKey = process.env.SERPAPI_KEY;
   if (!apiKey) return null;
-  const params = new URLSearchParams({ engine: "google_flights", departure_id: itinerary.origin, arrival_id: itinerary.destination, outbound_date: itinerary.departureDate, type: "2", adults: "1", travel_class: "1", currency: "JPY", hl: "en", gl: "jp", sort_by: "2", api_key: apiKey });
+  const params = new URLSearchParams({ engine: "google_flights", departure_id: itinerary.origin, arrival_id: itinerary.destination, outbound_date: itinerary.departureDate, type: "2", adults: "1", travel_class: "1", currency: "VND", hl: "vi", gl: "vn", sort_by: "2", api_key: apiKey });
   const response = await fetch(`https://serpapi.com/search.json?${params}`, { signal: AbortSignal.timeout(60000) });
   const payload = await response.json();
   if (!response.ok || payload.error) throw new Error(payload.error || `SerpApi returned HTTP ${response.status}`);
@@ -35,7 +53,8 @@ async function scrapeFlightsViaSerpApi(itinerary) {
     const first = segments[0] || {};
     const last = segments.at(-1) || {};
     const flightNumber = first.flight_number || null;
-    return { amount: Number(offer.price), currency: "JPY", fareDate: itinerary.departureDate, provider: flightNumber?.split(/\s+/)[0] || "GF", airline: first.airline || "Hãng bay", flightNumber, departureTime: first.departure_airport?.time?.slice(11, 16) || null, arrivalTime: last.arrival_airport?.time?.slice(11, 16) || null, stops: Math.max(0, segments.length - 1), kind: "google-flights-live" };
+    const airlineCode = flightNumber?.split(/\s+/)[0] || "GF";
+    return { amount: Number(offer.price), currency: "VND", fareDate: itinerary.departureDate, provider: airlineCode, airline: first.airline || "Hãng bay", bookingUrl: officialSites[airlineCode] || payload.search_metadata?.google_flights_url || "https://www.google.com/travel/flights", flightNumber, departureTime: first.departure_airport?.time?.slice(11, 16) || null, arrivalTime: last.arrival_airport?.time?.slice(11, 16) || null, stops: Math.max(0, segments.length - 1), kind: "google-flights-live" };
   }).filter((fare) => Number.isFinite(fare.amount));
   const unique = fares.filter((fare, index, all) => all.findIndex((item) => item.amount === fare.amount && item.flightNumber === fare.flightNumber) === index).sort((a, b) => a.amount - b.amount);
   return { provider: "GF", airline: "Google Flights", route: `${itinerary.origin}-${itinerary.destination}`, sourceUrl: payload.search_metadata?.google_flights_url || "https://www.google.com/travel/flights", fares: unique.slice(0, 20), dataSource: "SerpApi Google Flights" };
@@ -82,17 +101,13 @@ export async function scrapeProvider(provider, itinerary) {
       return { provider: "VN", airline: "Vietnam Airlines", route: `${itinerary.origin}-${itinerary.destination}`, departureDate: itinerary.departureDate, checkedAt: now, status: "error", message: error.message, fares: [] };
     }
   }
-  if (provider.code === "VJ") {
+  if (provider.code === "GF") {
     try {
       const serp = await scrapeFlightsViaSerpApi(itinerary);
       if (serp) return { ...serp, departureDate: itinerary.departureDate, checkedAt: now, status: serp.fares.length ? "ok" : "no_fare_found" };
-      const vj = await scrapeVietJet(itinerary);
-      if (vj) {
-        const sourceBlocked = vj.diagnostic?.bodyLength === 0;
-        return { ...vj, departureDate: itinerary.departureDate, checkedAt: now, status: sourceBlocked ? "source_blocked" : (vj.fares.length ? "ok" : "no_fare_found"), ...(sourceBlocked ? { message: "VietJet returned an empty page to the Render server; no fare was inferred." } : {}) };
-      }
+      return { provider: "GF", airline: "Các hãng khả dụng", route: `${itinerary.origin}-${itinerary.destination}`, departureDate: itinerary.departureDate, checkedAt: now, status: "source_unavailable", message: "SERPAPI_KEY is not configured.", fares: [] };
     } catch (error) {
-      return { provider: "VJ", airline: "VietJet Air", route: `${itinerary.origin}-${itinerary.destination}`, departureDate: itinerary.departureDate, checkedAt: now, status: "error", message: error.message, fares: [] };
+      return { provider: "GF", airline: "Các hãng khả dụng", route: `${itinerary.origin}-${itinerary.destination}`, departureDate: itinerary.departureDate, checkedAt: now, status: "error", message: error.message, fares: [] };
     }
   }
   return {

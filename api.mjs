@@ -44,7 +44,7 @@ const sendPush = async (store, notification) => {
   const app = getFirebaseApp();
   const tokens = [...new Set((store.devices || []).filter((item) => item.enabled !== false).map((item) => item.token).filter(Boolean))];
   if (!app || !tokens.length) return { sent: 0, skipped: true };
-  const amount = new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY", maximumFractionDigits: 0 }).format(notification.amount);
+  const amount = new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(notification.amount);
   const title = `Vé ${notification.route} đã xuống dưới ngưỡng`;
   const messageBody = `${notification.airline} ${notification.flightNumber || ""} lúc ${notification.departureTime || "--:--"}: ${amount}`;
   const response = await getMessaging(app).sendEachForMulticast({ tokens, data: { title, body: messageBody, itineraryId: notification.itineraryId, notificationId: notification.id } });
@@ -86,6 +86,7 @@ const server = http.createServer(async (req, res) => {
       const item = store.itineraries.find((entry) => entry.id === itineraryMatch[1]);
       if (!item) return json(res, 404, { error: "itinerary_not_found" });
       if (input.thresholdJpy !== undefined) item.thresholdJpy = Number(input.thresholdJpy);
+      if (input.thresholdVnd !== undefined) item.thresholdVnd = Number(input.thresholdVnd);
       if (input.enabled !== undefined) item.enabled = Boolean(input.enabled);
       item.updatedAt = new Date().toISOString(); await writeStore(store); return json(res, 200, item);
     }
