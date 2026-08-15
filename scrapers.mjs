@@ -80,7 +80,10 @@ export async function scrapeProvider(provider, itinerary) {
   if (provider.code === "VJ") {
     try {
       const vj = await scrapeVietJet(itinerary);
-      if (vj) return { ...vj, departureDate: itinerary.departureDate, checkedAt: now, status: vj.fares.length ? "ok" : "no_fare_found" };
+      if (vj) {
+        const sourceBlocked = vj.diagnostic?.bodyLength === 0;
+        return { ...vj, departureDate: itinerary.departureDate, checkedAt: now, status: sourceBlocked ? "source_blocked" : (vj.fares.length ? "ok" : "no_fare_found"), ...(sourceBlocked ? { message: "VietJet returned an empty page to the Render server; no fare was inferred." } : {}) };
+      }
     } catch (error) {
       return { provider: "VJ", airline: "VietJet Air", route: `${itinerary.origin}-${itinerary.destination}`, departureDate: itinerary.departureDate, checkedAt: now, status: "error", message: error.message, fares: [] };
     }
