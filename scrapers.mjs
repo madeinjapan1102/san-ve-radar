@@ -22,6 +22,21 @@ async function scrapeVietnamAirlines(itinerary) {
   return { provider: "VN", airline: "Vietnam Airlines", route: "NRT-HAN", sourceUrl: page, fares: unique.slice(0, 10).map((amount) => ({ amount, currency: "JPY", kind: "route-page-observation" })) };
 }
 
+async function scrapeVietJet(itinerary) {
+  if (itinerary.origin !== "NRT" || itinerary.destination !== "HAN") return null;
+  const page = "https://www.vietjetair.com/en/flight-tickets/flights-from-tokyo-narita-to-ha-noi";
+  const { chromium } = await import("playwright");
+  const browser = await chromium.launch({ headless: true });
+  const pageView = await browser.newPage({ locale: "en-US" });
+  try {
+    await pageView.goto(page, { waitUntil: "domcontentloaded", timeout: 45000 });
+    const text = await pageView.locator("body").innerText();
+    const fares = [...text.matchAll(/Price from\s*([0-9]+(?:[.,][0-9]+)?)\s*(EUR|USD)/gi)].map((m) => ({ amount: Number(m[1].replace(",", ".")), currency: m[2].toUpperCase(), kind: "route-page-observation" }));
+    const unique = fares.filter((f, i, a) => a.findIndex((x) => x.amount === f.amount && x.currency === f.currency) === i).sort((a, b) => a.amount - b.amount);
+    return { provider: "VJ", airline: "VietJet Air", route: "NRT-HAN", sourceUrl: page, fares: unique.slice(0, 10) };
+  } finally { await browser.close(); }
+}
+
 export async function scrapeProvider(provider, itinerary) {
   // Each airline has a different search form and anti-bot policy. This adapter
   // is intentionally isolated so selectors can be updated without touching the API.
@@ -32,6 +47,14 @@ export async function scrapeProvider(provider, itinerary) {
       if (vn) return { ...vn, departureDate: itinerary.departureDate, checkedAt: now, status: vn.fares.length ? "ok" : "no_fare_found" };
     } catch (error) {
       return { provider: "VN", airline: "Vietnam Airlines", route: `${itinerary.origin}-${itinerary.destination}`, departureDate: itinerary.departureDate, checkedAt: now, status: "error", message: error.message, fares: [] };
+    }
+  }
+  if (provider.code === "VJ") {
+    try {
+      const vj = await scrapeVietJet(itinerary);
+      if (vj) return { ...vj, departureDate: itinerary.departureDate, checkedAt: now, status: vj.fares.length ? "ok" : "no_fare_found" };
+    } catch (error) {
+      return { provider: "VJ", airline: "VietJet Air", route: `${itinerary.origin}-${itinerary.destination}`, departureDate: itinerary.departureDate, checkedAt: now, status: "error", message: error.message, fares: [] };
     }
   }
   return {
