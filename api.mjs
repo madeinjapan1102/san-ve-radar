@@ -63,6 +63,14 @@ const server = http.createServer(async (req, res) => {
       else store.devices.push({ id: crypto.randomUUID(), token: input.token, platform: input.platform || "android", enabled: true, createdAt: new Date().toISOString() });
       await writeStore(store); return json(res, 200, { registered: true });
     }
+    if (req.method === "POST" && url.pathname === "/search") {
+      const input = await body(req);
+      if (!input.origin || !input.destination || !input.departureDate) return json(res, 400, { error: "origin, destination and departureDate are required" });
+      const itinerary = { origin: String(input.origin).toUpperCase(), destination: String(input.destination).toUpperCase(), departureDate: input.departureDate };
+      const results = [];
+      for (const provider of listProviders()) results.push(await scrapeProvider(provider, itinerary));
+      return json(res, 200, { searchedAt: new Date().toISOString(), itinerary, results });
+    }
     if ((req.method === "POST" || req.method === "GET") && url.pathname === "/check") {
       const input = req.method === "POST" ? await body(req) : {}; const store = await readStore();
       const targets = store.itineraries.filter((item) => item.enabled !== false && (!input.itineraryId || item.id === input.itineraryId));
