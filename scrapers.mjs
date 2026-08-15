@@ -46,6 +46,79 @@ const buildRouteLink = (airlineCode, itinerary, googleFlightsUrl) => {
 
 export function listProviders() { return providers; }
 
+const directCache = new Map();
+const directCacheTtlMs = 55 * 60 * 1000;
+
+const googleFlightsTfs = (itinerary) => {
+  const date = [...Buffer.from(itinerary.departureDate)];
+  const origin = [...Buffer.from(itinerary.origin)];
+  const destination = [...Buffer.from(itinerary.destination)];
+  const search = Buffer.from([
+    8, 28, 16, 2, 26, 30,
+    18, 10, ...date,
+    106, 7, 8, 1, 18, 3, ...origin,
+    114, 7, 8, 1, 18, 3, ...destination,
+    64, 1, 72, 1, 112, 1, 152, 1, 2
+  ]);
+  return search.toString("base64url");
+};
+
+export function parseGoogleFlightsHtml(html, itinerary, sourceUrl) {
+  const fares = [];
+  const labelPattern = /aria-label="([^"]*?đồng Việt Nam[^"]*?)"/g;
+  for (const match of html.matchAll(labelPattern)) {
+    const label = match[1].replaceAll("&amp;", "&");
+    const amount = Number(label.match(/Từ\s+([\d.,]+)\s+đồng Việt Nam/i)?.[1]?.replace(/[.,]/g, ""));
+    const airline = label.match(/của\s+(.+?)\.\s+Rời/i)?.[1]?.trim();
+    const times = [...label.matchAll(/lúc\s+(\d{2}:\d{2})/gi)].map((item) => item[1]);
+    if (!Number.isFinite(amount) || !airline || times.length < 2) continue;
+    const nearby = html.slice(match.index, match.index + 5000);
+    const provider = nearby.match(/airline_logos\/70px\/([A-Z0-9]{2,3})\.png/i)?.[1] || "GF";
+    const stopsMatch = label.match(/(\d+)\s+điểm dừng/i);
+    const stops = /bay thẳng/i.test(label) ? 0 : (stopsMatch ? Number(stopsMatch[1]) : 1);
+    fares.push({
+      amount,
+      currency: "VND",
+      fareDate: itinerary.departureDate,
+      provider,
+      airline,
+      bookingUrl: sourceUrl,
+      officialUrl: officialSites[provider] || null,
+      flightNumber: null,
+      departureTime: times[0],
+      arrivalTime: times[1],
+      stops,
+      kind: "google-flights-direct"
+    });
+  }
+  return fares
+    .filter((fare, index, all) => all.findIndex((item) => item.amount === fare.amount && item.airline === fare.airline && item.departureTime === fare.departureTime && item.arrivalTime === fare.arrivalTime) === index)
+    .sort((a, b) => a.amount - b.amount)
+    .slice(0, 20);
+}
+
+async function scrapeGoogleFlightsDirect(itinerary) {
+  const cacheKey = `${itinerary.origin}-${itinerary.destination}-${itinerary.departureDate}-VND`;
+  const cached = directCache.get(cacheKey);
+  if (cached && Date.now() - cached.savedAt < directCacheTtlMs) return { ...cached.value, cacheHit: true };
+  const params = new URLSearchParams({ hl: "vi", gl: "vn", curr: "VND", tfs: googleFlightsTfs(itinerary) });
+  const sourceUrl = `https://www.google.com/travel/flights?${params}`;
+  const response = await fetch(sourceUrl, {
+    redirect: "follow",
+    signal: AbortSignal.timeout(60000),
+    headers: {
+      "accept-language": "vi-VN,vi;q=0.9,en;q=0.7",
+      "user-agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/131.0.0.0 Mobile Safari/537.36"
+    }
+  });
+  if (!response.ok) throw new Error(`Google Flights returned HTTP ${response.status}`);
+  const html = await response.text();
+  const fares = parseGoogleFlightsHtml(html, itinerary, sourceUrl);
+  const value = { provider: "GF", airline: "Google Flights", route: `${itinerary.origin}-${itinerary.destination}`, sourceUrl, fares, dataSource: "Google Flights public page", direct: true };
+  if (fares.length) directCache.set(cacheKey, { savedAt: Date.now(), value });
+  return value;
+}
+
 async function scrapeVietnamAirlines(itinerary) {
   if (itinerary.origin !== "NRT" || itinerary.destination !== "HAN") return null;
   const page = "https://www.vietnamairlines.com/en-jp/flights-from-tokyo-to-hanoi";
@@ -119,12 +192,19 @@ export async function scrapeProvider(provider, itinerary) {
     }
   }
   if (provider.code === "GF") {
+    let directError = null;
+    try {
+      const direct = await scrapeGoogleFlightsDirect(itinerary);
+      if (direct.fares.length) return { ...direct, departureDate: itinerary.departureDate, checkedAt: now, status: "ok" };
+    } catch (error) {
+      directError = error;
+    }
     try {
       const serp = await scrapeFlightsViaSerpApi(itinerary);
-      if (serp) return { ...serp, departureDate: itinerary.departureDate, checkedAt: now, status: serp.fares.length ? "ok" : "no_fare_found" };
-      return { provider: "GF", airline: "Các hãng khả dụng", route: `${itinerary.origin}-${itinerary.destination}`, departureDate: itinerary.departureDate, checkedAt: now, status: "source_unavailable", message: "SERPAPI_KEY is not configured.", fares: [] };
+      if (serp) return { ...serp, departureDate: itinerary.departureDate, checkedAt: now, status: serp.fares.length ? "ok" : "no_fare_found", fallbackUsed: true };
+      return { provider: "GF", airline: "Các hãng khả dụng", route: `${itinerary.origin}-${itinerary.destination}`, departureDate: itinerary.departureDate, checkedAt: now, status: "source_unavailable", message: directError?.message || "No direct fares were found and SERPAPI_KEY is not configured.", fares: [] };
     } catch (error) {
-      return { provider: "GF", airline: "Các hãng khả dụng", route: `${itinerary.origin}-${itinerary.destination}`, departureDate: itinerary.departureDate, checkedAt: now, status: "error", message: error.message, fares: [] };
+      return { provider: "GF", airline: "Các hãng khả dụng", route: `${itinerary.origin}-${itinerary.destination}`, departureDate: itinerary.departureDate, checkedAt: now, status: "error", message: `${directError?.message || "Direct Google Flights parsing returned no fares"}; fallback: ${error.message}`, fares: [] };
     }
   }
   return {
