@@ -1,0 +1,40 @@
+name: Scheduled fare check
+
+on:
+  schedule:
+    - cron: "17 */3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scheduled-fare-check
+  cancel-in-progress: false
+
+jobs:
+  check-nrt-han:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check VietJet NRT to HAN
+        shell: bash
+        run: |
+          set -euo pipefail
+          api="https://san-ve-radar.onrender.com"
+          departure_date="2026-08-24"
+          today="$(TZ=Asia/Tokyo date +%F)"
+
+          if [[ "$today" > "$departure_date" ]]; then
+            exit 0
+          fi
+
+          itineraries="$(curl --fail --silent --show-error --max-time 120 "$api/itineraries")"
+          itinerary_id="$(jq -r --arg date "$departure_date" '.itineraries[] | select(.origin == "NRT" and .destination == "HAN" and .departureDate == $date and .thresholdJpy == 36000) | .id' <<<"$itineraries" | head -n 1)"
+
+          if [[ -z "$itinerary_id" ]]; then
+            created="$(curl --fail --silent --show-error --max-time 120 -X POST "$api/itineraries" -H "content-type: application/json" --data "{\"origin\":\"NRT\",\"destination\":\"HAN\",\"departureDate\":\"$departure_date\",\"thresholdJpy\":36000}")"
+            itinerary_id="$(jq -r '.id' <<<"$created")"
+          fi
+
+          curl --fail --silent --show-error --max-time 180 -X POST "$api/check" -H "content-type: application/json" --data "{\"itineraryId\":\"$itinerary_id\"}"
