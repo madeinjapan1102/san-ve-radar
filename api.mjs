@@ -1,7 +1,7 @@
 import http from "node:http";
 import crypto from "node:crypto";
 import { readStore, writeStore } from "./store-file.mjs";
-import { listProviders } from "./scrapers.mjs";
+import { listProviders, scrapeProvider } from "./scrapers.mjs";
 
 const port = Number(process.env.PORT || 10000);
 const json = (res, status, body) => { res.writeHead(status, { "content-type": "application/json; charset=utf-8", "access-control-allow-origin": "*" }); res.end(JSON.stringify(body)); };
@@ -22,6 +22,16 @@ const server = http.createServer(async (req, res) => {
       store.itineraries.push(item); await writeStore(store); return json(res, 201, item);
     }
     if (req.method === "GET" && url.pathname === "/quotes") return json(res, 200, { quotes: (await readStore()).quotes });
+    if (req.method === "POST" && url.pathname === "/check") {
+      const input = await body(req); const store = await readStore();
+      const targets = store.itineraries.filter((item) => item.enabled !== false && (!input.itineraryId || item.id === input.itineraryId));
+      const results = [];
+      for (const itinerary of targets) for (const provider of listProviders()) {
+        const quote = await scrapeProvider(provider, itinerary);
+        store.quotes.push({ itineraryId: itinerary.id, ...quote }); results.push({ itineraryId: itinerary.id, ...quote });
+      }
+      await writeStore(store); return json(res, 200, { checkedAt: new Date().toISOString(), results });
+    }
     if (req.method === "GET" && url.pathname === "/notifications") return json(res, 200, { notifications: (await readStore()).notifications });
     return json(res, 404, { error: "not_found" });
   } catch (error) { return json(res, 500, { error: "server_error", message: error.message }); }
