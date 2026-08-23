@@ -1,5 +1,9 @@
 import { readStore, writeStore } from "./store-file.mjs";
 import { listProviders, scrapeProvider } from "./scrapers.mjs";
+import { runArchiveBatch } from "./archive-runner.mjs";
+
+const archiveResult = await runArchiveBatch(12);
+console.log(`Archived ${archiveResult.run.scanned} dates with ${archiveResult.run.changed} changed carrier prices`);
 
 const store = await readStore();
 const enabled = store.itineraries.filter((item) => item.enabled !== false);

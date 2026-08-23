@@ -2,6 +2,7 @@ import http from "node:http";
 import crypto from "node:crypto";
 import { readStore, writeStore } from "./store-file.mjs";
 import { listProviders, scrapeProvider } from "./scrapers.mjs";
+import { getArchiveCalendar, getArchiveHistory, getArchiveStatus, runArchiveBatch } from "./archive-runner.mjs";
 import { cert, getApps, initializeApp } from "firebase-admin/app";
 import { getMessaging } from "firebase-admin/messaging";
 
@@ -10,7 +11,7 @@ const json = (res, status, body) => {
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "access-control-allow-origin": "*",
-    "access-control-allow-methods": "GET,POST,OPTIONS",
+    "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
     "access-control-allow-headers": "content-type,accept",
     "access-control-max-age": "86400"
   });
@@ -66,11 +67,32 @@ const addFareNotification = (store, itinerary, quote) => {
   return notification;
 };
 
+let archiveRunPromise = null;
+
 const server = http.createServer(async (req, res) => {
   if (req.method === "OPTIONS") return json(res, 204, {});
   try {
     const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
     if (req.method === "GET" && url.pathname === "/health") return json(res, 200, { ok: true, service: "san-ve-radar-api", time: new Date().toISOString() });
+    if (req.method === "GET" && url.pathname === "/archive/status") return json(res, 200, await getArchiveStatus());
+    if (req.method === "GET" && url.pathname === "/archive/calendar") {
+      const from = url.searchParams.get("from") || undefined;
+      const to = url.searchParams.get("to") || undefined;
+      return json(res, 200, { route: "NRT-HAN", prices: await getArchiveCalendar(from, to) });
+    }
+    if (req.method === "GET" && url.pathname === "/archive/history") {
+      const date = url.searchParams.get("date") || undefined;
+      const provider = url.searchParams.get("provider")?.toUpperCase() || undefined;
+      if (provider && !["VJ", "VN", "NH", "JL"].includes(provider)) return json(res, 400, { error: "unsupported_provider" });
+      return json(res, 200, { route: "NRT-HAN", date, provider, changes: await getArchiveHistory(date, provider) });
+    }
+    if (req.method === "POST" && url.pathname === "/archive/run") {
+      if (archiveRunPromise) return json(res, 409, { error: "archive_scan_already_running" });
+      const input = await body(req);
+      archiveRunPromise = runArchiveBatch(input.limit || 12);
+      try { return json(res, 200, await archiveRunPromise); }
+      finally { archiveRunPromise = null; }
+    }
     if (req.method === "GET" && url.pathname === "/providers") return json(res, 200, { providers: listProviders() });
     if (req.method === "GET" && url.pathname === "/itineraries") return json(res, 200, { itineraries: (await readStore()).itineraries });
     if (req.method === "POST" && url.pathname === "/itineraries") {

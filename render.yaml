@@ -11,11 +11,15 @@ services:
         value: 10000
       - key: DATA_DIR
         value: /tmp/san-ve-radar
+      - key: ARCHIVE_START_DATE
+        value: 2026-08-24
+      - key: ARCHIVE_END_DATE
+        value: 2027-05-31
 
   - type: cron
     name: san-ve-radar-checker
     runtime: node
-    schedule: "*/15 * * * *"
+    schedule: "*/20 * * * *"
     buildCommand: npm ci && npx playwright install chromium
     startCommand: npm run worker
     envVars:
@@ -23,3 +27,7 @@ services:
         value: 22
       - key: DATA_DIR
         value: /tmp/san-ve-radar
+      - key: ARCHIVE_START_DATE
+        value: 2026-08-24
+      - key: ARCHIVE_END_DATE
+        value: 2027-05-31
