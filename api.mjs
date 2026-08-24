@@ -82,9 +82,13 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "GET" && url.pathname === "/archive/history") {
       const date = url.searchParams.get("date") || undefined;
+      const from = url.searchParams.get("from") || undefined;
+      const to = url.searchParams.get("to") || undefined;
       const provider = url.searchParams.get("provider")?.toUpperCase() || undefined;
       if (provider && !["VJ", "VN", "NH", "JL"].includes(provider)) return json(res, 400, { error: "unsupported_provider" });
-      return json(res, 200, { route: "NRT-HAN", date, provider, changes: await getArchiveHistory(date, provider) });
+      if (from && to && from > to) return json(res, 400, { error: "invalid_date_range" });
+      const limit = url.searchParams.get("limit") || 5000;
+      return json(res, 200, { route: "NRT-HAN", date, from, to, provider, changes: await getArchiveHistory({ date, from, to, provider, limit }) });
     }
     if (req.method === "POST" && url.pathname === "/archive/run") {
       if (archiveRunPromise) return json(res, 409, { error: "archive_scan_already_running" });

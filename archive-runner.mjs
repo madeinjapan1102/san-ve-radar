@@ -27,11 +27,13 @@ const signature = (fares) => JSON.stringify(fares.map((fare) => [fare.amount, fa
 
 export async function ensureArchiveTargets() {
   const state = await readArchive();
-  const startDate = process.env.ARCHIVE_START_DATE || todayTokyo();
+  const configuredStart = process.env.ARCHIVE_START_DATE || todayTokyo();
+  const startDate = configuredStart > todayTokyo() ? configuredStart : todayTokyo();
   const wanted = new Set(datesBetween(startDate, endDate));
   const existing = new Map(state.targets.map((target) => [target.date, target]));
   state.targets = [...wanted].map((date) => existing.get(date) || { date, status: "pending", scans: 0, lastScannedAt: null, nextDueAt: null, availableProviders: [] });
-  state.config = { route, carrierCodes, carrierNames, startDate, endDate, scansPerDay: 3, historyChanges: 8, updatedAt: new Date().toISOString() };
+  state.history = state.history.filter((item) => item.date >= startDate);
+  state.config = { route, carrierCodes, carrierNames, startDate, endDate, scansPerDay: 3, historyChanges: "all_until_departure", deleteRule: "delete_after_flight_date", updatedAt: new Date().toISOString() };
   await writeArchive(state);
   return state;
 }
@@ -43,12 +45,6 @@ function recordCarrierHistory(state, date, checkedAt, fares, provider) {
   const previous = state.history.find((item) => item.date === date && item.provider === provider);
   if (previous?.signature === sig) return false;
   state.history.unshift({ id: crypto.randomUUID(), route: "NRT-HAN", date, provider, airline: selected[0].airline || carrierNames[provider], observedAt: checkedAt, cheapestAmount: selected[0].amount, signature: sig, fares: selected });
-  let kept = 0;
-  state.history = state.history.filter((item) => {
-    if (item.date !== date || item.provider !== provider) return true;
-    kept += 1;
-    return kept <= 8;
-  });
   return true;
 }
 
@@ -129,7 +125,9 @@ export async function getArchiveCalendar(from, to) {
   return [...latest.values()].sort((a, b) => a.date.localeCompare(b.date) || a.provider.localeCompare(b.provider));
 }
 
-export async function getArchiveHistory(date, provider) {
+export async function getArchiveHistory({ date, from, to, provider, limit = 5000 } = {}) {
   const state = await readArchive();
-  return state.history.filter((item) => (!date || item.date === date) && (!provider || item.provider === provider)).slice(0, 500);
+  return state.history
+    .filter((item) => (!date || item.date === date) && (!from || item.date >= from) && (!to || item.date <= to) && (!provider || item.provider === provider))
+    .slice(0, Math.max(1, Math.min(20000, Number(limit) || 5000)));
 }
