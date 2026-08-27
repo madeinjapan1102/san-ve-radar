@@ -1,9 +1,10 @@
 import http from "node:http";
 import crypto from "node:crypto";
+import { gzipSync } from "node:zlib";
 import { readStore, writeStore } from "./store-file.mjs";
 import { listProviders, scrapeProvider } from "./scrapers.mjs";
 import { getArchiveCalendar, getArchiveHistory, getArchiveStatus, listArchiveRoutes, recordArchiveSearchResults, registerArchiveRoute, runArchiveBatch } from "./archive-runner.mjs";
-import { mirrorArchiveNow } from "./archive-store.mjs";
+import { mirrorArchiveNow, readArchive } from "./archive-store.mjs";
 import { cert, getApps, initializeApp } from "firebase-admin/app";
 import { getMessaging } from "firebase-admin/messaging";
 
@@ -110,6 +111,18 @@ const server = http.createServer(async (req, res) => {
       archiveRunPromise = runArchiveBatch(input.limit || 12);
       try { return json(res, 200, await archiveRunPromise); }
       finally { archiveRunPromise = null; }
+    }
+    if (req.method === "GET" && url.pathname === "/archive/export") {
+      const archive = await readArchive();
+      const payload = gzipSync(Buffer.from(JSON.stringify({ exportedAt: new Date().toISOString(), format: "san-ve-radar-archive-v2", archive })));
+      res.writeHead(200, {
+        "content-type": "application/gzip",
+        "content-disposition": `attachment; filename="san-ve-radar-history-${new Date().toISOString().slice(0, 10)}.json.gz"`,
+        "content-length": payload.length,
+        "access-control-allow-origin": "*",
+        "cache-control": "no-store"
+      });
+      return res.end(payload);
     }
     if (req.method === "POST" && url.pathname === "/archive/backup") {
       const expected = process.env.ARCHIVE_ADMIN_KEY;

@@ -43,6 +43,12 @@ Cơ chế này không tự đăng ký tài khoản đám mây mới. Cần tạo
 miễn phí và cung cấp URL một lần; sau đó việc sao lưu và chuyển khi lỗi diễn ra
 tự động. Khi không có PostgreSQL, máy chủ dùng tệp `DATA_DIR` chỉ để thử nghiệm.
 
+Ngoài ra, `GET /archive/export` xuất toàn bộ kho lịch sử dưới dạng JSON nén.
+Workflow `archive-backup.yml` tải tệp này mỗi ngày và thay thế tài sản
+`latest-history.json.gz` trong GitHub Release `fare-archive-backup`. Bản sao này
+hoạt động ngay cả khi chưa có PostgreSQL dự phòng và dùng để khôi phục nếu dịch
+vụ miễn phí xóa kho chính.
+
 ## Lưu ý về quét hãng
 
 Không có một giao diện tìm kiếm chung cho tất cả hãng. Mỗi adapter phải được kiểm thử riêng, tuân thủ điều khoản truy cập của hãng, giới hạn tốc độ và xử lý CAPTCHA/anti-bot bằng cách dừng an toàn — không vượt qua biện pháp bảo vệ. Adapter hiện là khung để nối từng hãng sau khi xác định trang giá công khai và selector ổn định.

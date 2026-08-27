@@ -6,16 +6,37 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  mirror-database:
-    if: ${{ secrets.ARCHIVE_ADMIN_KEY != '' }}
+  export-release-backup:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Download compressed archive snapshot
+        run: |
+          curl --fail --silent --show-error --retry 3 --max-time 240 \
+            "https://san-ve-radar.onrender.com/archive/export" \
+            -o latest-history.json.gz
+      - name: Keep latest snapshot as a persistent release asset
+        run: |
+          gh release view fare-archive-backup --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create fare-archive-backup --repo "$GITHUB_REPOSITORY" \
+              --title "Fare archive backup" \
+              --notes "Automatic compressed backup of public fare-change history."
+          gh release upload fare-archive-backup latest-history.json.gz \
+            --repo "$GITHUB_REPOSITORY" --clobber
+  mirror-database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      ARCHIVE_ADMIN_KEY: ${{ secrets.ARCHIVE_ADMIN_KEY }}
     steps:
       - name: Copy primary archive to standby database
+        if: ${{ env.ARCHIVE_ADMIN_KEY != '' }}
         run: |
           curl --fail --silent --show-error --max-time 240 \
             -X POST "https://san-ve-radar.onrender.com/archive/backup" \
-            -H "x-admin-key: ${{ secrets.ARCHIVE_ADMIN_KEY }}"
+            -H "x-admin-key: $ARCHIVE_ADMIN_KEY"
