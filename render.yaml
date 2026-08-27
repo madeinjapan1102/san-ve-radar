@@ -9,12 +9,16 @@ services:
         value: 22
       - key: PORT
         value: 10000
+      - key: DATABASE_URL
+        sync: false
       - key: DATA_DIR
         value: /tmp/san-ve-radar
       - key: ARCHIVE_START_DATE
         value: 2026-08-24
       - key: ARCHIVE_END_DATE
         value: 2027-05-31
+      - key: ARCHIVE_STALE_AFTER_MINUTES
+        value: 60
       - key: BACKUP_DATABASE_URL
         sync: false
       - key: ARCHIVE_ADMIN_KEY
@@ -31,7 +35,16 @@ services:
         value: 22
       - key: DATA_DIR
         value: /tmp/san-ve-radar
+      # The cron service is a separate machine. Without the same database
+      # secrets it writes only to its disposable /tmp directory and the API
+      # never sees completed scans.
+      - key: DATABASE_URL
+        sync: false
+      - key: BACKUP_DATABASE_URL
+        sync: false
       - key: ARCHIVE_START_DATE
         value: 2026-08-24
       - key: ARCHIVE_END_DATE
         value: 2027-05-31
+      - key: ARCHIVE_STALE_AFTER_MINUTES
+        value: 60

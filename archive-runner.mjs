@@ -29,7 +29,19 @@ const compactFare = (fare) => ({
   stops: Number(fare.stops || 0), bookingUrl: fare.bookingUrl || fare.officialUrl || null,
   logoUrl: fare.logoUrl || null
 });
-const signature = (fares) => JSON.stringify(fares.map((fare) => [fare.amount, fare.flightNumber, fare.departureTime, fare.arrivalTime, fare.stops]));
+// Keep the signature aligned with the fields shown to users. A carrier, flight,
+// schedule, stop count, price, or booking-link change must create a new immutable
+// history entry even when the headline price stays the same.
+const signature = (fares) => JSON.stringify(fares.map((fare) => [
+  fare.amount,
+  fare.currency,
+  fare.airline,
+  fare.flightNumber,
+  fare.departureTime,
+  fare.arrivalTime,
+  fare.stops,
+  fare.bookingUrl
+]));
 
 function migrateState(input) {
   const state = { version: 2, config: null, routes: [], targets: [], history: [], runs: [], ...(input || {}) };
@@ -213,6 +225,12 @@ export async function runArchiveBatch(requestedLimit = 12) {
 export function archiveStatus(state, route) {
   const targets = route ? state.targets.filter((item) => item.route === route) : state.targets;
   const history = route ? state.history.filter((item) => item.route === route) : state.history;
+  const latestScannedAt = targets.reduce((latest, item) => item.lastScannedAt > latest ? item.lastScannedAt : latest, "");
+  const now = Date.now();
+  const staleAfterMs = Number(process.env.ARCHIVE_STALE_AFTER_MINUTES || 60) * 60_000;
+  const latestScanAgeMinutes = latestScannedAt ? Math.floor((now - new Date(latestScannedAt).getTime()) / 60_000) : null;
+  const recentRuns = (state.runs || []).slice(0, 20);
+  const providerErrors = recentRuns.flatMap((run) => run.errors || []);
   return {
     config: state.config,
     storage: archiveStorageKind(),
@@ -225,6 +243,14 @@ export function archiveStatus(state, route) {
     datesWithFares: targets.filter((item) => item.availableProviders?.length).length,
     pendingDates: targets.filter((item) => !item.lastScannedAt).length,
     historyRecords: history.length,
+    latestScannedAt: latestScannedAt || null,
+    latestScanAgeMinutes,
+    stale: latestScanAgeMinutes === null || latestScanAgeMinutes * 60_000 > staleAfterMs,
+    providerHealth: {
+      recentRuns: recentRuns.length,
+      recentErrors: providerErrors.length,
+      lastErrors: providerErrors.slice(0, 10)
+    },
     latestRun: state.runs[0] || null
   };
 }

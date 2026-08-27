@@ -62,6 +62,19 @@ test("stores live search results immediately as route history", async () => {
   assert.equal(history[0].cheapestAmount, 2500000);
 });
 
+test("appends history when a user-visible booking field changes", async () => {
+  const base = {
+    origin: "NRT", destination: "OKA", from: "2026-10-11", to: "2026-10-11",
+    days: [{ departureDate: "2026-10-11", results: [{ checkedAt: "2026-08-28T03:00:00.000Z", fares: [{ amount: 1800000, currency: "VND", provider: "NH", airline: "ANA", departureTime: "08:00", arrivalTime: "11:00", stops: 0, bookingUrl: "https://example.test/first" }] }] }]
+  };
+  assert.equal((await recordArchiveSearchResults(base)).changed, 1);
+  base.days[0].results[0].checkedAt = "2026-08-28T04:00:00.000Z";
+  base.days[0].results[0].fares[0].bookingUrl = "https://example.test/second";
+  assert.equal((await recordArchiveSearchResults(base)).changed, 1);
+  const history = await getArchiveHistory({ origin: "NRT", destination: "OKA", date: "2026-10-11" });
+  assert.equal(history.length, 2);
+});
+
 test.after(async () => {
   await fs.rm(tempRoot, { recursive: true, force: true });
 });
