@@ -9,7 +9,7 @@ process.env.DATA_DIR = tempRoot;
 delete process.env.DATABASE_URL;
 delete process.env.BACKUP_DATABASE_URL;
 
-const { getArchiveStatus, listArchiveRoutes, registerArchiveRoute } = await import("../archive-runner.mjs");
+const { getArchiveHistory, getArchiveStatus, listArchiveRoutes, recordArchiveSearchResults, registerArchiveRoute } = await import("../archive-runner.mjs");
 const { readArchive, writeArchive } = await import("../archive-store.mjs");
 
 test("migrates legacy NRT-HAN targets without losing history", async () => {
@@ -48,6 +48,18 @@ test("accepts Japan domestic and international IATA routes", async () => {
   const routes = await listArchiveRoutes();
   assert.ok(routes.some((route) => route.id === "HND-CTS"));
   assert.ok(routes.some((route) => route.id === "CDG-HAN"));
+});
+
+test("stores live search results immediately as route history", async () => {
+  const archive = await recordArchiveSearchResults({
+    origin: "KIX", destination: "FUK", from: "2026-10-10", to: "2026-10-10",
+    days: [{ departureDate: "2026-10-10", results: [{ checkedAt: "2026-08-28T02:00:00.000Z", fares: [{ amount: 2500000, currency: "VND", provider: "NH", airline: "ANA", departureTime: "09:00", arrivalTime: "10:15", stops: 0 }] }] }]
+  });
+  const history = await getArchiveHistory({ origin: "KIX", destination: "FUK", from: "2026-10-10", to: "2026-10-10" });
+  assert.equal(archive.recordedDates, 1);
+  assert.equal(archive.changed, 1);
+  assert.equal(history.length, 1);
+  assert.equal(history[0].cheapestAmount, 2500000);
 });
 
 test.after(async () => {

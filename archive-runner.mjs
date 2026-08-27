@@ -141,6 +141,29 @@ function recordCarrierHistory(state, target, checkedAt, fares, provider) {
   return true;
 }
 
+export async function recordArchiveSearchResults({ origin, destination, from, to, days, source = "search" }) {
+  const registration = await registerArchiveRoute({ origin, destination, from, to, source });
+  const state = migrateState(await readArchive());
+  let changed = 0, recordedDates = 0;
+  for (const day of days || []) {
+    const target = state.targets.find((item) => item.route === registration.route.id && item.date === day.departureDate);
+    if (!target) continue;
+    const results = day.results || [];
+    const checkedAt = results.find((item) => item.checkedAt)?.checkedAt || new Date().toISOString();
+    const fares = results.flatMap((result) => result.fares || []).filter((fare) => fare.currency === "VND" && /^[A-Z0-9]{2,3}$/.test(String(fare.provider || "")));
+    const available = [...new Set(fares.map((fare) => fare.provider))];
+    for (const provider of available) if (recordCarrierHistory(state, target, checkedAt, fares, provider)) changed += 1;
+    target.lastScannedAt = checkedAt;
+    target.nextDueAt = new Date(new Date(checkedAt).getTime() + scanIntervalMs).toISOString();
+    target.scans = Number(target.scans || 0) + 1;
+    target.status = available.length ? "available" : "checked-empty";
+    target.availableProviders = available;
+    recordedDates += 1;
+  }
+  await writeArchive(state);
+  return { ...registration, recordedDates, changed };
+}
+
 async function scanOne(target) {
   const itinerary = { origin: target.origin, destination: target.destination, departureDate: target.date };
   const result = await scrapeProvider(googleProvider, itinerary);

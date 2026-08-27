@@ -2,7 +2,7 @@ import http from "node:http";
 import crypto from "node:crypto";
 import { readStore, writeStore } from "./store-file.mjs";
 import { listProviders, scrapeProvider } from "./scrapers.mjs";
-import { getArchiveCalendar, getArchiveHistory, getArchiveStatus, listArchiveRoutes, registerArchiveRoute, runArchiveBatch } from "./archive-runner.mjs";
+import { getArchiveCalendar, getArchiveHistory, getArchiveStatus, listArchiveRoutes, recordArchiveSearchResults, registerArchiveRoute, runArchiveBatch } from "./archive-runner.mjs";
 import { mirrorArchiveNow } from "./archive-store.mjs";
 import { cert, getApps, initializeApp } from "firebase-admin/app";
 import { getMessaging } from "firebase-admin/messaging";
@@ -169,7 +169,7 @@ const server = http.createServer(async (req, res) => {
         result.fares = (result.fares || []).filter((fare) => Number(fare.stops || 0) <= maxStops);
         if (result.status === "ok" && !result.fares.length) result.status = "no_fare_found";
       }
-      const archive = await registerArchiveRoute({ origin: itinerary.origin, destination: itinerary.destination, from: itinerary.departureDate, to: itinerary.endDate, source: "search" }).catch((error) => ({ error: error.message }));
+      const archive = await recordArchiveSearchResults({ origin: itinerary.origin, destination: itinerary.destination, from: itinerary.departureDate, to: itinerary.endDate, days, source: "search" }).catch((error) => ({ error: error.message }));
       return json(res, 200, { searchedAt: new Date().toISOString(), itinerary, archive, days, results: days.length === 1 ? days[0].results : [] });
     }
     if ((req.method === "POST" || req.method === "GET") && url.pathname === "/check") {
