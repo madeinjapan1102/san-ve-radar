@@ -2,7 +2,8 @@ import http from "node:http";
 import crypto from "node:crypto";
 import { readStore, writeStore } from "./store-file.mjs";
 import { listProviders, scrapeProvider } from "./scrapers.mjs";
-import { getArchiveCalendar, getArchiveHistory, getArchiveStatus, runArchiveBatch } from "./archive-runner.mjs";
+import { getArchiveCalendar, getArchiveHistory, getArchiveStatus, listArchiveRoutes, registerArchiveRoute, runArchiveBatch } from "./archive-runner.mjs";
+import { mirrorArchiveNow } from "./archive-store.mjs";
 import { cert, getApps, initializeApp } from "firebase-admin/app";
 import { getMessaging } from "firebase-admin/messaging";
 
@@ -12,7 +13,7 @@ const json = (res, status, body) => {
     "content-type": "application/json; charset=utf-8",
     "access-control-allow-origin": "*",
     "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
-    "access-control-allow-headers": "content-type,accept",
+    "access-control-allow-headers": "content-type,accept,x-admin-key",
     "access-control-max-age": "86400"
   });
   res.end(JSON.stringify(body));
@@ -74,21 +75,34 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
     if (req.method === "GET" && url.pathname === "/health") return json(res, 200, { ok: true, service: "san-ve-radar-api", time: new Date().toISOString() });
-    if (req.method === "GET" && url.pathname === "/archive/status") return json(res, 200, await getArchiveStatus());
+    if (req.method === "GET" && url.pathname === "/archive/status") {
+      const origin = url.searchParams.get("origin") || undefined;
+      const destination = url.searchParams.get("destination") || undefined;
+      return json(res, 200, await getArchiveStatus({ origin, destination }));
+    }
+    if (req.method === "GET" && url.pathname === "/archive/routes") return json(res, 200, { routes: await listArchiveRoutes() });
+    if (req.method === "POST" && url.pathname === "/archive/routes") {
+      const input = await body(req);
+      return json(res, 201, await registerArchiveRoute(input));
+    }
     if (req.method === "GET" && url.pathname === "/archive/calendar") {
+      const origin = url.searchParams.get("origin") || "NRT";
+      const destination = url.searchParams.get("destination") || "HAN";
       const from = url.searchParams.get("from") || undefined;
       const to = url.searchParams.get("to") || undefined;
-      return json(res, 200, { route: "NRT-HAN", prices: await getArchiveCalendar(from, to) });
+      return json(res, 200, { route: `${origin}-${destination}`, prices: await getArchiveCalendar({ origin, destination, from, to }) });
     }
     if (req.method === "GET" && url.pathname === "/archive/history") {
+      const origin = url.searchParams.get("origin") || "NRT";
+      const destination = url.searchParams.get("destination") || "HAN";
       const date = url.searchParams.get("date") || undefined;
       const from = url.searchParams.get("from") || undefined;
       const to = url.searchParams.get("to") || undefined;
       const provider = url.searchParams.get("provider")?.toUpperCase() || undefined;
-      if (provider && !["VJ", "VN", "NH", "JL"].includes(provider)) return json(res, 400, { error: "unsupported_provider" });
+      if (provider && !/^[A-Z0-9]{2,3}$/.test(provider)) return json(res, 400, { error: "invalid_provider" });
       if (from && to && from > to) return json(res, 400, { error: "invalid_date_range" });
       const limit = url.searchParams.get("limit") || 5000;
-      return json(res, 200, { route: "NRT-HAN", date, from, to, provider, changes: await getArchiveHistory({ date, from, to, provider, limit }) });
+      return json(res, 200, { route: `${origin}-${destination}`, date, from, to, provider, changes: await getArchiveHistory({ origin, destination, date, from, to, provider, limit }) });
     }
     if (req.method === "POST" && url.pathname === "/archive/run") {
       if (archiveRunPromise) return json(res, 409, { error: "archive_scan_already_running" });
@@ -97,6 +111,11 @@ const server = http.createServer(async (req, res) => {
       try { return json(res, 200, await archiveRunPromise); }
       finally { archiveRunPromise = null; }
     }
+    if (req.method === "POST" && url.pathname === "/archive/backup") {
+      const expected = process.env.ARCHIVE_ADMIN_KEY;
+      if (!expected || req.headers["x-admin-key"] !== expected) return json(res, 403, { error: "archive_admin_key_required" });
+      return json(res, 200, { ok: true, ...(await mirrorArchiveNow()) });
+    }
     if (req.method === "GET" && url.pathname === "/providers") return json(res, 200, { providers: listProviders() });
     if (req.method === "GET" && url.pathname === "/itineraries") return json(res, 200, { itineraries: (await readStore()).itineraries });
     if (req.method === "POST" && url.pathname === "/itineraries") {
@@ -104,7 +123,9 @@ const server = http.createServer(async (req, res) => {
       if (!input.origin || !input.destination || !input.departureDate) return json(res, 400, { error: "origin, destination and departureDate are required" });
       const store = await readStore();
       const item = { id: crypto.randomUUID(), ...input, enabled: true, createdAt: new Date().toISOString() };
-      store.itineraries.push(item); await writeStore(store); return json(res, 201, item);
+      store.itineraries.push(item); await writeStore(store);
+      await registerArchiveRoute({ origin: item.origin, destination: item.destination, from: item.departureDate, to: item.endDate || item.departureDate, source: "follow" });
+      return json(res, 201, item);
     }
     const itineraryMatch = url.pathname.match(/^\/itineraries\/([^/]+)$/);
     if (itineraryMatch && req.method === "PATCH") {
@@ -148,7 +169,8 @@ const server = http.createServer(async (req, res) => {
         result.fares = (result.fares || []).filter((fare) => Number(fare.stops || 0) <= maxStops);
         if (result.status === "ok" && !result.fares.length) result.status = "no_fare_found";
       }
-      return json(res, 200, { searchedAt: new Date().toISOString(), itinerary, days, results: days.length === 1 ? days[0].results : [] });
+      const archive = await registerArchiveRoute({ origin: itinerary.origin, destination: itinerary.destination, from: itinerary.departureDate, to: itinerary.endDate, source: "search" }).catch((error) => ({ error: error.message }));
+      return json(res, 200, { searchedAt: new Date().toISOString(), itinerary, archive, days, results: days.length === 1 ? days[0].results : [] });
     }
     if ((req.method === "POST" || req.method === "GET") && url.pathname === "/check") {
       const input = req.method === "POST" ? await body(req) : {}; const store = await readStore();

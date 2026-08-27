@@ -1,4 +1,4 @@
-name: Archive NRT-HAN fares
+name: Archive multi-route fares
 
 on:
   schedule:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: nrt-han-fare-archive
+  group: multi-route-fare-archive
   cancel-in-progress: false
 
 jobs:
@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Scan next 12 due dates
+      - name: Scan next 12 due route-dates
         run: |
           curl --fail --silent --show-error --max-time 540 \
             -X POST "https://san-ve-radar.onrender.com/archive/run" \

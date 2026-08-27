@@ -1,0 +1,21 @@
+name: Mirror fare archive
+
+on:
+  schedule:
+    - cron: "15 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mirror-database:
+    if: ${{ secrets.ARCHIVE_ADMIN_KEY != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Copy primary archive to standby database
+        run: |
+          curl --fail --silent --show-error --max-time 240 \
+            -X POST "https://san-ve-radar.onrender.com/archive/backup" \
+            -H "x-admin-key: ${{ secrets.ARCHIVE_ADMIN_KEY }}"

@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "start": "node api.mjs",
-    "worker": "node worker-entry.mjs"
+    "worker": "node worker-entry.mjs",
+    "backup": "node backup-tool.mjs",
+    "test": "node --test"
   },
   "dependencies": {
     "firebase-admin": "^13.4.0",
